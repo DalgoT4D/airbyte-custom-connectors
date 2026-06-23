@@ -1,0 +1,86 @@
+name: Build & Push Custom Connector
+
+on:
+  workflow_dispatch:
+    inputs:
+      connector:
+        description: "Connector folder name (e.g. source-kobotoolbox)"
+        required: true
+        type: string
+      branch:
+        description: "Branch to build from"
+        required: true
+        type: string
+        default: main
+      version:
+        description: "Version tag to push (e.g. 0.1.0)"
+        required: true
+        type: string
+      airbyte_cdk_version:
+        description: "airbyte-cdk version to install for the build"
+        required: true
+        type: string
+        default: "6.48.10"
+
+env:
+  DOCKERHUB_NAMESPACE: tech4dev
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: Verify connector exists
+        run: |
+          CONNECTOR_DIR="airbyte-integrations/connectors/${{ inputs.connector }}"
+          if [ ! -d "$CONNECTOR_DIR" ]; then
+            echo "::error::Connector directory not found: $CONNECTOR_DIR"
+            exit 1
+          fi
+          if [ ! -f "$CONNECTOR_DIR/metadata.yaml" ]; then
+            echo "::error::metadata.yaml not found in $CONNECTOR_DIR"
+            exit 1
+          fi
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install airbyte-cdk CLI (${{ inputs.airbyte_cdk_version }})
+        run: uv tool install "airbyte-cdk==${{ inputs.airbyte_cdk_version }}"
+
+      - name: Build connector image
+        working-directory: airbyte-integrations/connectors/${{ inputs.connector }}
+        run: airbyte-cdk image build --tag ${{ inputs.version }}
+
+      - name: Resolve source image name from metadata
+        id: meta
+        run: |
+          SRC_REPO=$(awk '/^[[:space:]]*dockerRepository:/ {print $2; exit}' \
+            airbyte-integrations/connectors/${{ inputs.connector }}/metadata.yaml)
+          if [ -z "$SRC_REPO" ]; then
+            echo "::error::dockerRepository not found in metadata.yaml"
+            exit 1
+          fi
+          echo "src_image=${SRC_REPO}:${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          echo "dst_image=${DOCKERHUB_NAMESPACE}/${{ inputs.connector }}:${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+
+      - name: Tag image for Docker Hub
+        run: docker tag ${{ steps.meta.outputs.src_image }} ${{ steps.meta.outputs.dst_image }}
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Push image
+        run: docker push ${{ steps.meta.outputs.dst_image }}
+
+      - name: Summary
+        run: |
+          echo "### Pushed image" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`${{ steps.meta.outputs.dst_image }}\`" >> "$GITHUB_STEP_SUMMARY"
