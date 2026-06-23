@@ -39,6 +39,11 @@ jobs:
             exit 1
           fi
 
+      - name: Set up QEMU (amd64 emulation for airbyte-cdk's multi-arch build)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/amd64
+
       - name: Set up uv
         uses: astral-sh/setup-uv@v3
 
