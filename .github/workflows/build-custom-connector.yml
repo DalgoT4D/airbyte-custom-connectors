@@ -7,11 +7,6 @@ on:
         description: "Connector folder name (e.g. source-kobotoolbox)"
         required: true
         type: string
-      branch:
-        description: "Branch to build from"
-        required: true
-        type: string
-        default: main
       version:
         description: "Version tag to push (e.g. 0.1.0)"
         required: true
@@ -31,8 +26,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.branch }}
 
       - name: Verify connector exists
         run: |
