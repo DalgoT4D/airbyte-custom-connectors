@@ -39,6 +39,21 @@ jobs:
             exit 1
           fi
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Fail if image:tag already exists on Docker Hub
+        run: |
+          TARGET="${DOCKERHUB_NAMESPACE}/${{ inputs.connector }}:${{ inputs.version }}"
+          if docker manifest inspect "$TARGET" > /dev/null 2>&1; then
+            echo "::error::Image $TARGET already exists on Docker Hub. Bump the version and retry."
+            exit 1
+          fi
+          echo "OK: $TARGET does not exist yet — proceeding to build."
+
       - name: Set up QEMU (amd64 emulation for airbyte-cdk's multi-arch build)
         uses: docker/setup-qemu-action@v3
         with:
