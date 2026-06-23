@@ -61,7 +61,6 @@ class SourceMicrosoftSharePointClient:
             authority=f"https://login.microsoftonline.com/{self.config.credentials.tenant_id}",
             client_credential=self.config.credentials.client_secret,
         )
-        self._url_cache = {}
 
     @property
     def client(self):
@@ -120,6 +119,7 @@ class SourceMicrosoftSharePointStreamReader(AbstractFileBasedStreamReader):
         super().__init__()
         self._auth_client = None
         self._one_drive_client = None
+        self._url_cache = {}
 
     @property
     def config(self) -> SourceMicrosoftSharePointSpec:
