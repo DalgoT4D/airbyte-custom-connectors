@@ -47,7 +47,9 @@ jobs:
 
       - name: Build connector image
         working-directory: airbyte-integrations/connectors/${{ inputs.connector }}
-        run: airbyte-cdk image build --tag ${{ inputs.version }}
+        run: |
+          mkdir -p build/docker
+          airbyte-cdk image build --tag ${{ inputs.version }}
 
       - name: Resolve source image name from metadata
         id: meta
