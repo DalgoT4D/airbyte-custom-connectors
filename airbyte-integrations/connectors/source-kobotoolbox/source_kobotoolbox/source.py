@@ -36,6 +36,24 @@ stream_json_schema = {
     },
 }
 
+asset_contents_json_schema = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "additionalProperties": True,
+    "properties": {
+        "asset_uid": {"type": ["string", "null"]},
+        "asset_name": {"type": ["string", "null"]},
+        "version_id": {"type": ["string", "null"]},
+        "sheet": {"type": ["string", "null"]},
+        "row_index": {"type": ["number", "null"]},
+        "row": {"type": "object"},
+        "translations": {
+            "type": ["array", "null"],
+            "items": {"type": ["string", "null"]},
+        },
+    },
+}
+
 
 # pylint:disable=too-many-instance-attributes
 class KoboToolStream(HttpStream, CheckpointMixin, ABC):
@@ -222,6 +240,101 @@ class KoboStreamEnd(KoboToolStream):
     cursor_field = "end"
 
 
+class KoboAssetContents(HttpStream):
+    """
+    Form-definition stream: one stream (`asset_contents`) covering every deployed
+    asset. For each asset uid we GET /api/v2/assets/{uid}.json and emit one record
+    per row of content.survey and content.choices, so downstream models
+    (e.g. dbt_taf_metrics QuestionsDB) can join question labels/types/choices
+    to melted submissions.
+    Full-refresh only; meant to be synced with destination mode "overwrite".
+    """
+
+    primary_key = ["asset_uid", "version_id", "sheet", "row_index"]
+
+    # full-refresh stream: no cursor field
+    cursor_field = []
+
+    def __init__(
+        self,
+        config: Mapping[str, Any],
+        asset_uids: List[str],
+        auth_token: str,
+        **kwargs,
+    ):
+        """constructor"""
+        super().__init__()
+        self.asset_uids = asset_uids
+        self.auth_token = auth_token
+        self.base_url = config["base_url"]
+
+    @property
+    def url_base(self) -> str:
+        """base url for all http requests for kobo assets"""
+        return f"{self.base_url}/api/v2/"
+
+    @property
+    def name(self) -> str:
+        """single stream for all assets"""
+        return "asset_contents"
+
+    def get_json_schema(self):
+        """airbyte needs this function"""
+        return asset_contents_json_schema
+
+    def stream_slices(
+        self,
+        sync_mode: SyncMode = None,  # pylint:disable=unused-argument
+        cursor_field: List[str] = None,  # pylint:disable=unused-argument
+        stream_state: Mapping[str, Any] = None,  # pylint:disable=unused-argument
+    ) -> Iterable[Optional[Mapping[str, Any]]]:
+        """one slice per deployed asset"""
+        for asset_uid in self.asset_uids:
+            yield {"asset_uid": asset_uid}
+
+    def path(self, stream_slice: Mapping[str, Any] = None, **kwargs) -> str:  # pylint:disable=unused-argument
+        """airbyte needs this function"""
+        return f"assets/{stream_slice['asset_uid']}.json"
+
+    def next_page_token(self, response: requests.Response) -> Optional[Mapping[str, Any]]:  # pylint:disable=unused-argument
+        """the asset detail endpoint is not paginated"""
+        return None
+
+    def request_headers(
+        self,
+        stream_state: Mapping[str, Any],  # pylint:disable=unused-argument
+        stream_slice: Mapping[str, Any] = None,  # pylint:disable=unused-argument
+        next_page_token: Mapping[str, Any] = None,  # pylint:disable=unused-argument
+    ) -> Mapping[str, Any]:
+        """build the request headers"""
+        return {"Authorization": "Token " + self.auth_token}
+
+    def parse_response(self, response: requests.Response, **kwargs) -> Iterable[Mapping]:
+        """parse the asset detail and yield one record per survey/choices row"""
+        asset = response.json()
+        content = asset.get("content") or {}
+        # version_id must reflect the DEPLOYED version of the form, because
+        # submissions carry a __version__ field stamped with the version that
+        # was deployed when the submission was made; QuestionsDB joins rely on
+        # this. The asset-level "version_id" advances with every draft edit
+        # (even undeployed ones), so we prefer "deployment__version_id" (the
+        # version the current deployment is serving), falling back to
+        # "deployed_version_id" and only then to "version_id".
+        version_id = asset.get("deployment__version_id") or asset.get("deployed_version_id") or asset.get("version_id")
+        translations = content.get("translations") or []
+        for sheet in ("survey", "choices"):
+            for row_index, row in enumerate(content.get(sheet) or []):
+                yield {
+                    "asset_uid": asset.get("uid"),
+                    "asset_name": asset.get("name"),
+                    "version_id": version_id,
+                    "sheet": sheet,
+                    "row_index": row_index,
+                    "row": row,
+                    "translations": translations,
+                }
+
+
 class SourceKobotoolbox(AbstractSource):
     """One instance per sync"""
 
@@ -273,8 +386,10 @@ class SourceKobotoolbox(AbstractSource):
 
         # Generate array of stream objects
         streams = []
+        deployed_asset_uids = []
         for form_dict in key_list:
             if form_dict["has_deployment"]:
+                deployed_asset_uids.append(form_dict["uid"])
                 if "forms_using_endtime" in config and form_dict["name"] in config["forms_using_endtime"]:
                     stream = KoboStreamEndTime(
                         config=config,
@@ -303,5 +418,17 @@ class SourceKobotoolbox(AbstractSource):
                         auth_token=auth_token,
                     )
                 streams.append(stream)
+
+        # Single form-definition stream covering all deployed assets, used by
+        # dbt_taf_metrics (QuestionsDB) to join question labels/types/choices
+        # to melted submissions
+        if deployed_asset_uids:
+            streams.append(
+                KoboAssetContents(
+                    config=config,
+                    asset_uids=deployed_asset_uids,
+                    auth_token=auth_token,
+                )
+            )
 
         return streams

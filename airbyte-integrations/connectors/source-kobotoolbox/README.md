@@ -3,6 +3,13 @@
 This is the repository for the Kobotoolbox source connector, written in Python.
 For information about how to use this connector within Airbyte, see [the documentation](https://docs.airbyte.com/integrations/sources/kobotoolbox).
 
+## Streams
+
+The connector emits the following streams:
+
+* **One stream per deployed form** (stream name is derived from the form name): submissions from `/api/v2/assets/{uid}/data.json`, synced incrementally on `_submission_time` (or `endtime`/`end` for forms listed in `forms_using_endtime`/`forms_using_end`). Records are `{_id, data, endtime, end, _submission_time}`.
+* **`asset_contents`** (full refresh / overwrite): the form definitions of all deployed forms, from `/api/v2/assets/{uid}.json`. One record per row of `content.survey` and `content.choices`: `{asset_uid, asset_name, version_id, sheet ('survey'|'choices'), row_index, row, translations}`, with primary key `[asset_uid, version_id, sheet, row_index]`. `version_id` is the *deployed* version of the asset (`deployment__version_id`), so records can be joined to the `__version__` field of submissions. This stream exists so downstream dbt models (e.g. `dbt_taf_metrics` QuestionsDB) can join question labels/types/choices to melted submissions. Only the currently deployed version of each form is emitted; historical versions are not covered.
+
 ## Local development
 
 ### Prerequisites

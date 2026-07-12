@@ -19,7 +19,7 @@ data:
   connectorSubtype: api
   connectorType: source
   definitionId: 15125475-e7c1-4cdb-b865-71c5e6c941b7
-  dockerImageTag: 0.1.0
+  dockerImageTag: 0.4.0
   dockerRepository: airbyte/source-kobotoolbox
   githubIssueLabel: source-kobotoolbox
   icon: kobotoolbox.svg
