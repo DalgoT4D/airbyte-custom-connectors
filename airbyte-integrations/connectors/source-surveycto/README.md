@@ -3,6 +3,13 @@
 This is the repository for the Surveycto source connector, written in Python.
 For information about how to use this connector within Airbyte, see [the documentation](https://docs.airbyte.com/integrations/sources/surveycto).
 
+## Streams
+
+The connector emits the following streams:
+
+* **One stream per configured form** (stream name is the form id): submissions from `/api/v2/forms/data/wide/json/{form_id}`, synced incrementally on `SubmissionDate`. Records are `{KEY, data, endtime, SubmissionDate}`.
+* **`form_definitions`** (full refresh / overwrite): the XLSForm definitions of all configured forms, from `/forms/{form_id}/files`. Every listed definition-file version is downloaded — the currently deployed one (`deployedGroupFiles.definitionFile`) *and* all `previousDefinitionFiles` — because submissions carry a `formdef_version` field stamped with the form version that was live at submission time, and downstream joins must find that version. One record per row of the `survey`, `choices` and `settings` sheets: `{form_id, form_version, sheet ('survey'|'choices'|'settings'), row_index, row}`, with primary key `[form_id, form_version, sheet, row_index]`. `row` maps cleaned column names (lowercased, `[ ,;{}()\n\t=-]` replaced with `_`, unnamed columns dropped) to stringified cell values; `row_index` is the 0-based position under the header row, so question order is preserved. This stream exists so downstream dbt models (e.g. `dbt_taf_metrics` QuestionsDB) can join question labels/types/choices to melted submissions. Legacy `.xls` definition files are skipped with a warning; a definition file that fails to download is skipped with a warning rather than failing the sync.
+
 ## Local development
 
 ### Prerequisites

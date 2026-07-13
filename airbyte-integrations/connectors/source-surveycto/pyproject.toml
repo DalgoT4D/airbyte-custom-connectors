@@ -3,7 +3,7 @@ requires = [ "poetry-core>=1.0.0",]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-version = "0.1.0"
+version = "0.3.0"
 name = "source-surveycto"
 description = "Source implementation for surveycto."
 authors = [ "Airbyte <contact@airbyte.io>",]
@@ -17,6 +17,7 @@ packages = [ { include = "source_surveycto" }, {include = "main.py" } ]
 [tool.poetry.dependencies]
 python = "^3.10,<3.12"
 airbyte-cdk = "6.13.0"
+openpyxl = "^3.1"
 
 [tool.poetry.scripts]
 source-surveycto = "source_surveycto.run:run"
