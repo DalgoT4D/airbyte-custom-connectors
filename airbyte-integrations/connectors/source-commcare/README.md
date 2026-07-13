@@ -4,6 +4,18 @@
 This is the repository for the Commcare source connector, written in Python.
 For information about how to use this connector within Airbyte, see [the documentation](https://docs.airbyte.com/integrations/sources/commcare).
 
+## Streams
+
+The connector emits the following streams:
+
+* **One stream per form in the application** (stream name is the form's English name, or `Unnamed_xxxxx` derived from the last 5 characters of the XMLNS): form submissions from `/a/{project_space}/api/v0.5/form/`, synced incrementally on `indexed_on`. Records are `{id, indexed_on, data}`.
+* **`zzz_case`** (incremental on `indexed_on`): cases from `/a/{project_space}/api/v0.5/case/`. Records are `{id, indexed_on, data}`. Named `zzz_case` because Airbyte syncs streams in alphabetical order and cases must be pulled after all forms (case records are filtered by the form ids seen in the same sync cycle, unless `import_all_cases` is set).
+* **`application_questions`** (full refresh / overwrite): the application's form definitions from `/a/{project_space}/api/v0.5/application/{app_id}/`, exploded as `modules[] -> forms[] -> questions[]`. One record per question: `{app_id, app_name, app_version, built_on, module_id, module_name, form_id, form_name, form_xmlns, question_variable, row_index, question}`, with primary key `[app_id, form_xmlns, question_variable]`. `question_variable` is the question's `value` path (e.g. `/data/survey/consent`) and `question` is the full question dict (label, type, options, calculate, relevant, required, repeat, group, ...). This stream exists so downstream dbt models (e.g. `dbt_taf_metrics` QuestionsDB) can join question labels/types to melted submissions. Note: the endpoint returns the *current* structure of the app document; released builds are separate app documents that are not enumerable from this response, so only the current version is emitted (stamped with `app_version`/`built_on`).
+* **`user`** (full refresh / overwrite): mobile workers from `/a/{project_space}/api/v0.5/user/` (paginated via `meta.next`). Records use the connector's standard `{id, data}` envelope.
+* **`location`** (full refresh / overwrite): locations from `/a/{project_space}/api/v0.5/location/` (paginated via `meta.next`). Records use the `{id, data}` envelope; `id` is the guid `location_id` (the stable join key carried by case/form data), falling back to the numeric `id`.
+
+The three full-refresh streams all sort alphabetically before `zzz_case`, so the ordering trick above is preserved.
+
 ## Local development
 
 ### Prerequisites
